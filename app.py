@@ -13,7 +13,7 @@ import io
 import subprocess
 import logging
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 import uvicorn
@@ -28,27 +28,23 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
-class LLMWithFallback:
-    """LLM initialized with available API key."""
-    def __init__(self):
-        self.openai_key = os.getenv("OPENAI_API_KEY")
+# Global LLM instance (lazy-loaded)
+_llm_instance = None
+
+def get_llm():
+    global _llm_instance
+    if _llm_instance is None:
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError("OPENAI_API_KEY environment variable not set")
         
-        if not self.openai_key:
-            raise ValueError("No API key found. Please set OPENAI_API_KEY")
-        
-        # Initialize with OpenRouter (OpenAI-compatible API)
-        self.primary_llm = ChatOpenAI(
+        _llm_instance = ChatOpenAI(
             model="gpt-4-turbo",
-            api_key=self.openai_key,
+            api_key=api_key,
             base_url="https://openrouter.io/api/v1",
             temperature=0.1
         )
-    
-    def get_llm(self):
-        return self.primary_llm
-
-llm_handler = LLMWithFallback()
-llm = llm_handler.get_llm()
+    return _llm_instance
 
 @tool
 def scrape_url_to_dataframe(url: str) -> str:
@@ -86,67 +82,10 @@ def scrape_url_to_dataframe(url: str) -> str:
     except Exception as e:
         return f"Error scraping {url}: {str(e)}"
 
-def parse_keys_and_types(variables_str: str) -> dict:
-    """Parse variable assignments and determine types."""
-    if not variables_str:
-        return {}
-    
-    variables = {}
-    for line in variables_str.strip().split('\n'):
-        line = line.strip()
-        if not line or line.startswith('#'):
-            continue
-        
-        if '=' in line:
-            key, value = line.split('=', 1)
-            key = key.strip()
-            value = value.strip()
-            
-            try:
-                variables[key] = eval(value)
-            except:
-                variables[key] = value
-    
-    return variables
-
-def clean_llm_output(text: str) -> str:
-    """Clean LLM output to extract Python code."""
-    if '```python' in text:
-        code = text.split('```python')[1].split('```')[0]
-    elif '```' in text:
-        code = text.split('```')[1].split('```')[0]
-    else:
-        code = text
-    
-    return code.strip()
-
-def write_and_run_temp_python(code: str, variables: dict = None) -> tuple:
-    """Write Python code to temp file and execute."""
-    if variables is None:
-        variables = {}
-    
-    try:
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
-            f.write(code)
-            temp_file = f.name
-        
-        result = subprocess.run(
-            [sys.executable, temp_file],
-            capture_output=True,
-            text=True,
-            timeout=30
-        )
-        
-        os.unlink(temp_file)
-        return result.returncode, result.stdout, result.stderr
-    except subprocess.TimeoutExpired:
-        return 1, "", "Execution timeout"
-    except Exception as e:
-        return 1, "", str(e)
-
 def run_agent_safely_unified(quiz_url: str, email: str, secret: str) -> dict:
     """Run the agent to solve the quiz and return results."""
     try:
+        llm = get_llm()
         tools = [scrape_url_to_dataframe]
         prompt = hub.pull("hwchase17/react-chat-json")
         agent = create_react_agent(llm, tools, prompt)
