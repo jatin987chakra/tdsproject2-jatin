@@ -14,6 +14,7 @@ pillow
 langchain>=0.0.340
 langchain-core>=0.0.9
 langchain-google-genai>=0.0.4
+langchain-openai
 google-generativeai
 openpyxl
 pyarrow
