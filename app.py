@@ -24,7 +24,6 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import uvicorn
 
-from langchain_community.utilities import GoogleSerperAPIWrapper
 from langchain_core.tools import tool
 from langchain import hub
 from langchain.agents import AgentExecutor, create_react_agent
