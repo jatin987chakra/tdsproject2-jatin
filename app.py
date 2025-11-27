@@ -15,14 +15,12 @@ import logging
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import uvicorn
 
 from langchain_core.tools import tool
 from langchain import hub
 from langchain.agents import AgentExecutor, create_react_agent
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 
 logging.basicConfig(level=logging.INFO)
@@ -31,51 +29,20 @@ logger = logging.getLogger(__name__)
 app = FastAPI()
 
 class LLMWithFallback:
-    """LLM with fallback from Gemini to OpenAI/OpenRouter."""
+    """LLM initialized with available API key."""
     def __init__(self):
-        self.gemini_key = None
         self.openai_key = os.getenv("OPENAI_API_KEY")
-        self.openrouter_key = os.getenv("OPENROUTER_API_KEY")
         
-        # Try to get first available Gemini key from gemini_api_1 through gemini_api_10
-        for i in range(1, 11):
-            key_name = f"gemini_api_{i}"
-            key = os.getenv(key_name)
-            if key and key != "your_api_key_here":
-                self.gemini_key = key
-                break
+        if not self.openai_key:
+            raise ValueError("No API key found. Please set OPENAI_API_KEY")
         
-        # Initialize LLMs - priority order: Gemini, OpenRouter, OpenAI
-        if self.gemini_key:
-            try:
-                self.primary_llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=self.gemini_key, temperature=0.1)
-            except Exception as e:
-                logger.warning(f"Failed to initialize Gemini: {e}")
-                self.primary_llm = None
-        else:
-            self.primary_llm = None
-            
-        if not self.primary_llm and self.openrouter_key:
-            try:
-                self.primary_llm = ChatOpenAI(
-                    model="gpt-4-turbo",
-                    api_key=self.openrouter_key,
-                    base_url="https://openrouter.io/api/v1",
-                    temperature=0.1
-                )
-            except Exception as e:
-                logger.warning(f"Failed to initialize OpenRouter: {e}")
-                self.primary_llm = None
-                
-        if not self.primary_llm and self.openai_key:
-            try:
-                self.primary_llm = ChatOpenAI(model="gpt-4-turbo", api_key=self.openai_key, temperature=0.1)
-            except Exception as e:
-                logger.warning(f"Failed to initialize OpenAI: {e}")
-                self.primary_llm = None
-        
-        if not self.primary_llm:
-            raise ValueError("No LLM API key found. Please set GEMINI_API_KEY, OPENROUTER_API_KEY, or OPENAI_API_KEY")
+        # Initialize with OpenRouter (OpenAI-compatible API)
+        self.primary_llm = ChatOpenAI(
+            model="gpt-4-turbo",
+            api_key=self.openai_key,
+            base_url="https://openrouter.io/api/v1",
+            temperature=0.1
+        )
     
     def get_llm(self):
         return self.primary_llm
